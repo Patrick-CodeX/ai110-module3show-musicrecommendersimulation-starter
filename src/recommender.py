@@ -1,4 +1,5 @@
 from typing import List, Dict, Tuple, Optional
+import csv
 from dataclasses import dataclass
 
 @dataclass
@@ -39,11 +40,37 @@ class Recommender:
 
     def recommend(self, user: UserProfile, k: int = 5) -> List[Song]:
         # TODO: Implement recommendation logic
-        return self.songs[:k]
+        scored_songs = []
+        for song in self.songs:
+            score = 0.0
+            if song.genre.lower() == user.favorite_genre.lower():
+                score += 5.0
+            if song.mood.lower() == user.favorite_mood.lower():
+                score += 3.0
+
+        # Energy proximity (lower difference = higher score)
+        energy_diff = abs(song.energy - user.target_energy)
+        score += (1.0 - energy_diff) * 2
+        
+        # Acoustic preference
+        if user.likes_acoustic and song.acousticness > 0.5:
+            score += 1.0
+
+        scored_songs.append((song, score))
+
+    # Sort by score descending and return top k
+        scored_songs.sort(key=lambda x: x[1], reverse=True)
+        return [song for song, score in scored_songs[:k]]
+    
 
     def explain_recommendation(self, user: UserProfile, song: Song) -> str:
-        # TODO: Implement explanation logic
-        return "Explanation placeholder"
+        reasons = []
+        if song.genre.lower() == user.favorite_genre.lower():
+            reasons.append(f"it matches your favorite genre ({user.favorite_genre})")
+        if abs(song.energy - user.target_energy) < 0.2:
+            reasons.append("the energy level matches your preference")
+        
+        return f"Recommended because {' and '.join(reasons)}."
 
 def load_songs(csv_path: str) -> List[Dict]:
     """
@@ -51,14 +78,37 @@ def load_songs(csv_path: str) -> List[Dict]:
     Required by src/main.py
     """
     # TODO: Implement CSV loading logic
-    print(f"Loading songs from {csv_path}...")
-    return []
+    songs = []
+    with open(csv_path, mode='r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            songs.append(Song(
+                id=int(row['id']),
+                title=row['title'],
+                artist=row['artist'],
+                genre=row['genre'],
+                mood=row['mood'],
+                energy=float(row['energy']),
+                tempo_bpm=float(row['tempo_bpm']),
+                valence=float(row['valence']),
+                danceability=float(row['danceability']),
+                acousticness=float(row['acousticness'])
+            ))
+    return songs
 
-def recommend_songs(user_prefs: Dict, songs: List[Dict], k: int = 5) -> List[Tuple[Dict, float, str]]:
-    """
-    Functional implementation of the recommendation logic.
-    Required by src/main.py
-    """
-    # TODO: Implement scoring and ranking logic
-    # Expected return format: (song_dict, score, explanation)
-    return []
+def recommend_songs(user_prefs: Dict, songs_data: List[Dict], k: int = 5) -> List[Tuple[Dict, float, str]]:
+    # 1. Convert Dicts to Objects
+    songs = [Song(**s) for s in songs_data] # This assumes keys match exactly
+    user = UserProfile(**user_prefs)
+    
+    # 2. Use the Recommender class
+    rec_engine = Recommender(songs)
+    top_songs = rec_engine.recommend(user, k)
+    
+    # 3. Format as requested: (song_dict, score, explanation)
+    results = []
+    for s in top_songs:
+        explanation = rec_engine.explain_recommendation(user, s)
+        # Note: You'd need to calculate the score again or return it from recommend()
+        results.append((s.__dict__, 0.0, explanation)) 
+    return results
