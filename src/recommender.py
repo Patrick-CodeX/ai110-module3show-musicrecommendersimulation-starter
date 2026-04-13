@@ -38,30 +38,31 @@ class Recommender:
     def __init__(self, songs: List[Song]):
         self.songs = songs
 
-    def recommend(self, user: UserProfile, k: int = 5) -> List[Song]:
-        # TODO: Implement recommendation logic
-        scored_songs = []
-        for song in self.songs:
-            score = 0.0
-            if song.genre.lower() == user.favorite_genre.lower():
-                score += 5.0
-            if song.mood.lower() == user.favorite_mood.lower():
-                score += 3.0
+    def score_song(self, user: UserProfile, song: Song) -> float:
+        score = 0.0
+        if song.genre.lower() == user.favorite_genre.lower():
+            score += 5.0
+        if song.mood.lower() == user.favorite_mood.lower():
+            score += 3.0
 
         # Energy proximity (lower difference = higher score)
         energy_diff = abs(song.energy - user.target_energy)
-        score += (1.0 - energy_diff) * 2
-        
+        score += max(0.0, (1.0 - energy_diff)) * 2.0
+
         # Acoustic preference
         if user.likes_acoustic and song.acousticness > 0.5:
             score += 1.0
 
-        scored_songs.append((song, score))
+        return score
 
-    # Sort by score descending and return top k
+    def recommend(self, user: UserProfile, k: int = 5) -> List[Song]:
+        scored_songs = []
+        for song in self.songs:
+            score = self.score_song(user, song)
+            scored_songs.append((song, score))
+
         scored_songs.sort(key=lambda x: x[1], reverse=True)
         return [song for song, score in scored_songs[:k]]
-    
 
     def explain_recommendation(self, user: UserProfile, song: Song) -> str:
         reasons = []
@@ -97,18 +98,34 @@ def load_songs(csv_path: str) -> List[Dict]:
     return songs
 
 def recommend_songs(user_prefs: Dict, songs_data: List[Dict], k: int = 5) -> List[Tuple[Dict, float, str]]:
-    # 1. Convert Dicts to Objects
-    songs = [Song(**s) for s in songs_data] # This assumes keys match exactly
-    user = UserProfile(**user_prefs)
-    
-    # 2. Use the Recommender class
+    # 1. Convert incoming song data to Song objects if needed
+    if len(songs_data) > 0 and isinstance(songs_data[0], Song):
+        songs = songs_data
+    else:
+        songs = [Song(**s) for s in songs_data]  # This assumes keys match exactly
+
+    # 2. Convert incoming user preferences to a UserProfile
+    if isinstance(user_prefs, UserProfile):
+        user = user_prefs
+    else:
+        if all(key in user_prefs for key in ["favorite_genre", "favorite_mood", "target_energy"]):
+            user = UserProfile(**user_prefs)
+        else:
+            user = UserProfile(
+                favorite_genre=user_prefs.get("favorite_genre") or user_prefs.get("genre", ""),
+                favorite_mood=user_prefs.get("favorite_mood") or user_prefs.get("mood", ""),
+                target_energy=float(user_prefs.get("target_energy", user_prefs.get("energy", 0.5))),
+                likes_acoustic=bool(user_prefs.get("likes_acoustic", False)),
+            )
+
+    # 3. Use the Recommender class
     rec_engine = Recommender(songs)
     top_songs = rec_engine.recommend(user, k)
-    
-    # 3. Format as requested: (song_dict, score, explanation)
+
+    # 4. Format as requested: (song_dict, score, explanation)
     results = []
     for s in top_songs:
+        score = rec_engine.score_song(user, s)
         explanation = rec_engine.explain_recommendation(user, s)
-        # Note: You'd need to calculate the score again or return it from recommend()
-        results.append((s.__dict__, 0.0, explanation)) 
+        results.append((s.__dict__, score, explanation))
     return results
